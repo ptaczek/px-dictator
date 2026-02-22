@@ -176,8 +176,10 @@ px-dictator/
 │   └── llama/           # GPU LLM binary + libs (not in git)
 ├── icons/               # SVG indicator icons
 ├── config.example.toml
+├── install-desktop.sh   # Register in app launcher
+├── uninstall-desktop.sh # Remove from app launcher
 ├── requirements.txt
-└── px-dictator.desktop  # Autostart entry
+└── px-dictator.desktop  # Desktop entry / autostart
 ```
 
 ## VRAM Usage
@@ -193,19 +195,19 @@ With enhancement disabled, only ~340 MiB is used. VRAM is fully released on disa
 
 ## Application Launcher & Autostart
 
-Add PX-Dictator to your desktop environment's application launcher (Super key search):
+Run the install script to register PX-Dictator in your desktop application launcher (Super key search). It patches the `.desktop` file with the correct paths and symlinks it into `~/.local/share/applications/`:
 
 ```bash
-ln -sf /path/to/px-dictator/px-dictator.desktop ~/.local/share/applications/px-dictator.desktop
+./install-desktop.sh              # launcher only
+./install-desktop.sh --autostart  # launcher + autostart on login
 ```
 
-For autostart on login:
+To remove:
 
 ```bash
-ln -sf /path/to/px-dictator/px-dictator.desktop ~/.config/autostart/px-dictator.desktop
+./uninstall-desktop.sh              # launcher only
+./uninstall-desktop.sh --autostart  # launcher + autostart
 ```
-
-Note: edit the `Exec`, `Path`, and `Icon` lines in `px-dictator.desktop` to match your installation path.
 
 ## License
 

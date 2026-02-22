@@ -1,10 +1,13 @@
 """PX-Dictator main entry point — GLib main loop + orchestration."""
 
 import argparse
+import fcntl
 import logging
+import os
 import signal
 import sys
 import threading
+from pathlib import Path
 
 import gi
 gi.require_version("Gtk", "3.0")
@@ -215,7 +218,31 @@ class App:
         return False
 
 
+def _acquire_lock():
+    """Acquire an exclusive lock to enforce single instance.
+
+    Returns the open file object (must stay alive for the process lifetime).
+    Exits with an error if another instance is already running.
+    """
+    runtime = os.environ.get("XDG_RUNTIME_DIR", f"/tmp/px-dictator-{os.getuid()}")
+    lock_path = Path(runtime) / "px-dictator.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    lock_file = open(lock_path, "w")
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print("PX-Dictator is already running.", file=sys.stderr)
+        sys.exit(1)
+
+    lock_file.write(str(os.getpid()))
+    lock_file.flush()
+    return lock_file
+
+
 def main():
+    lock = _acquire_lock()  # noqa: F841  — must stay alive
+
     parser = argparse.ArgumentParser(description="PX-Dictator — Voice to Text")
     parser.add_argument("--config", help="Path to config TOML")
     parser.add_argument("-v", "--verbose", action="store_true")

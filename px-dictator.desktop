@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=PX-Dictator
+Comment=Lightweight voice-to-text for Linux
+Exec=python3 -m px_dictator.app
+Path=/home/pta/Develop/ai/px-dictator
+Icon=/home/pta/Develop/ai/px-dictator/icons/pxd-ready.svg
+Terminal=false
+Categories=Utility;Audio;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

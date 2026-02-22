@@ -1,0 +1,33 @@
+[general]
+enabled = true
+activation_mode = "push-to-talk"   # or "toggle"
+
+[audio]
+device = ""                        # substring match, index number, or empty for default
+sample_rate = 16000
+
+[hotkey]
+key = "KEY_RIGHTALT"               # evdev key name
+device = ""                        # auto-detect if empty
+
+[transcription]
+host = "127.0.0.1"
+port = 6006
+model = "parakeet-tdt-0.6b-v3"
+
+[enhancement]
+enabled = true
+host = "127.0.0.1"
+port = 8200
+model = "Qwen3-1.7B-Q8_0.gguf"
+gpu_layers = 99
+ctx_size = 4096
+system_prompt = """Fix grammar, punctuation and casing.
+Keep the original meaning. Output only the corrected text."""
+
+[paste]
+session = "auto"                   # "auto", "xorg", or "wayland"
+delay_ms = 100
+terminal_classes = ["kitty", "Alacritty", "gnome-terminal-server", "tilix",
+                    "konsole", "xfce4-terminal", "terminator", "st",
+                    "urxvt", "xterm", "foot", "wezterm"]

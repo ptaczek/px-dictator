@@ -36,9 +36,14 @@ DEFAULTS = {
         "device": "",
     },
     "transcription": {
+        "engine": "sherpa-onnx",
         "host": "127.0.0.1",
         "port": 6006,
         "model": "parakeet-tdt-0.6b-v3",
+        "sherpa_language": "en",
+        "whisper_model": "ggml-medium.bin",
+        "whisper_language": "auto",
+        "whisper_translate": False,
     },
     "enhancement": {
         "enabled": True,

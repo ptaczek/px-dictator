@@ -140,9 +140,7 @@ class App:
 
     def _process(self, samples):
         try:
-            tc = self.cfg["transcription"]
-            text = transcribe(samples, self.cfg["audio"]["sample_rate"],
-                              tc["host"], tc["port"])
+            text = transcribe(samples, self.cfg)
             if not text:
                 log.warning("Empty transcription")
                 GLib.idle_add(self.indicator.set_state, "ready")
@@ -206,9 +204,11 @@ class App:
             new_cfg["enhancement"]["enabled"] != old_cfg["enhancement"]["enabled"] or
             new_cfg["enhancement"]["gpu_layers"] != old_cfg["enhancement"]["gpu_layers"]
         )
-        if needs_server_restart and self.indicator.state != "disabled":
-            self._disable()
-            GLib.timeout_add(500, lambda: self._enable() or False)
+        if needs_server_restart:
+            if self.indicator.state != "disabled":
+                self._disable()
+            if new_cfg["general"]["enabled"]:
+                GLib.timeout_add(500, lambda: self._enable() or False)
 
     def _on_quit(self):
         log.info("Shutting down")

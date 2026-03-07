@@ -1,6 +1,7 @@
 # Binaries (too large for git — downloaded/built during install)
 bin/sherpa-onnx/
 bin/llama/
+bin/whisper/
 
 # Python
 __pycache__/

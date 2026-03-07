@@ -10,7 +10,9 @@ Lightweight Linux voice-to-text with GPU acceleration. Press a hotkey, speak, re
 Hold hotkey → speak → release → text appears in focused app
 ```
 
-- **Speech-to-text**: NVIDIA Parakeet TDT 0.6B via sherpa-onnx (GPU, ~340 MiB VRAM)
+- **Speech-to-text**: Two engines, selectable in Preferences:
+  - **Whisper** (default): OpenAI Whisper models via whisper.cpp (GPU, 1–5 GB VRAM)
+  - **Sherpa-ONNX**: NVIDIA Parakeet TDT 0.6B (GPU, ~340 MiB VRAM)
 - **Text enhancement** (optional): Qwen3 LLM via llama-server (GPU, 2.5–10 GB VRAM) — fixes grammar, punctuation, removes filler words
 - **Paste**: Clipboard + simulated keystroke via uinput (auto-detects terminals on X11; Ctrl+Shift+V on Wayland)
 - **GNOME panel indicator**: Shows state (ready/recording/processing), menu for enable/disable, mode switch, preferences
@@ -58,7 +60,22 @@ rm sherpa-onnx-v1.12.23-cuda-12.x-cudnn-9.x-linux-x64-gpu.tar.bz2
 cd ../..
 ```
 
-### 3. Build llama-server with CUDA
+### 3. Build whisper-server with CUDA
+
+```bash
+git clone https://github.com/ggerganov/whisper.cpp.git /tmp/whisper-build
+cd /tmp/whisper-build
+cmake -B build -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release -j$(nproc) --target whisper-server
+
+# Copy binary and libs
+cp build/bin/whisper-server ~/path-to/px-dictator/bin/whisper/
+cp -a build/bin/libwhisper.so* ~/path-to/px-dictator/bin/whisper/ 2>/dev/null || true
+cp -a build/bin/libggml*.so* ~/path-to/px-dictator/bin/whisper/ 2>/dev/null || true
+cd ~ && rm -rf /tmp/whisper-build
+```
+
+### 4. Build llama-server with CUDA (optional, for text enhancement)
 
 ```bash
 git clone https://github.com/ggml-org/llama.cpp.git /tmp/llama-build
@@ -74,7 +91,22 @@ cp -a build/bin/libmtmd.so* ~/path-to/px-dictator/bin/llama/
 cd ~ && rm -rf /tmp/llama-build
 ```
 
-### 4. Download STT model (Parakeet)
+### 5. Download Whisper model
+
+Download from Preferences dialog, or manually:
+
+```bash
+mkdir -p ~/.local/share/px-dictator/models/whisper
+cd ~/.local/share/px-dictator/models/whisper
+
+# Pick one:
+wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin          # 466 MB, ~1 GB VRAM
+wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin         # 1.5 GB, ~2.5 GB VRAM (recommended)
+wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin       # 3 GB, ~5 GB VRAM
+wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin # 1.6 GB, ~2.5 GB VRAM
+```
+
+### 6. Download STT model (Parakeet) — only if using sherpa-onnx engine
 
 ```bash
 mkdir -p ~/.local/share/px-dictator/models/stt
@@ -85,7 +117,7 @@ mv sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8 parakeet-tdt-0.6b-v3
 rm sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2
 ```
 
-### 5. Download LLM model (optional, for text enhancement)
+### 7. Download LLM model (optional, for text enhancement)
 
 Download from Preferences dialog, or manually:
 
@@ -138,21 +170,22 @@ Key settings:
 ## Architecture
 
 ```
-┌────────────────────────────────────────────────┐
-│            GLib Main Loop (Python)             │
-│                                                │
-│  Indicator ←──── Hotkey (evdev grab+uinput)    │
-│  (AyatanaAppIndicator3)     │                  │
-│                             ▼                  │
-│  sounddevice → sherpa-onnx WS → llama HTTP     │
-│  (PCM 16kHz)   (Parakeet GPU)  (Qwen3 GPU)    │
-│                                    │           │
-│                              clipboard+paste   │
-│                        (xclip/wl-copy + uinput) │
-│                                                │
-│  Server Manager (subprocess lifecycle)         │
-│  sherpa-onnx :6006        llama-server :8200   │
-└────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│              GLib Main Loop (Python)                 │
+│                                                      │
+│  Indicator ←──── Hotkey (evdev grab+uinput)          │
+│  (AyatanaAppIndicator3)     │                        │
+│                             ▼                        │
+│  sounddevice ──→ STT engine ──→ llama HTTP           │
+│  (PCM 16kHz)    ┌─────────────┐  (Qwen3 GPU)        │
+│                 │whisper HTTP  │       │              │
+│                 │sherpa-onnx WS│ clipboard+paste      │
+│                 └─────────────┘(xclip/wl-copy+uinput)│
+│                                                      │
+│  Server Manager (subprocess lifecycle)               │
+│  whisper-server :6006  OR  sherpa-onnx :6006         │
+│  llama-server :8200                                  │
+└──────────────────────────────────────────────────────┘
 ```
 
 ## Project Structure
@@ -170,8 +203,9 @@ px-dictator/
 │   ├── preferences.py   # GTK3 settings dialog
 │   ├── recorder.py      # sounddevice audio capture
 │   ├── servers.py       # Server process lifecycle
-│   └── transcriber.py   # sherpa-onnx WebSocket client
+│   └── transcriber.py   # STT clients (sherpa-onnx WS + whisper HTTP)
 ├── bin/
+│   ├── whisper/         # whisper.cpp server binary + libs (not in git)
 │   ├── sherpa-onnx/     # GPU STT binary + libs (not in git)
 │   └── llama/           # GPU LLM binary + libs (not in git)
 ├── icons/               # SVG indicator icons
@@ -186,12 +220,19 @@ px-dictator/
 
 | Component | VRAM |
 |-----------|------|
+| **Whisper STT** | |
+| whisper-server (Small) | ~1 GB |
+| whisper-server (Medium) | ~2.5 GB |
+| whisper-server (Large) | ~5 GB |
+| whisper-server (Turbo) | ~2.5 GB |
+| **Sherpa-ONNX STT** | |
 | sherpa-onnx (Parakeet 0.6B INT8) | ~340 MiB |
+| **Enhancement LLM** | |
 | llama-server (Qwen3 1.7B Q4_K_M) | ~2.5 GB |
 | llama-server (Qwen3 4B Q4_K_M) | ~5.5 GB |
 | llama-server (Qwen3 8B Q4_K_M) | ~10.2 GB |
 
-With enhancement disabled, only ~340 MiB is used. VRAM is fully released on disable/quit.
+VRAM is fully released on disable/quit.
 
 ## Application Launcher & Autostart
 

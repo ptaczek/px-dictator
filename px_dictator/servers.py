@@ -1,4 +1,4 @@
-"""Child process lifecycle for sherpa-onnx and llama-server."""
+"""Child process lifecycle for sherpa-onnx, whisper-server, and llama-server."""
 
 import logging
 import os
@@ -58,6 +58,7 @@ class SherpaServer(Server):
             f"--joiner={model_dir / 'joiner.int8.onnx'}",
             f"--port={tc['port']}",
             f"--num-threads={num_threads}",
+            "--provider=cuda",
         ]
 
         env = os.environ.copy()
@@ -101,6 +102,58 @@ class SherpaServer(Server):
                 pass
         except Exception:
             pass
+
+
+class WhisperServer(Server):
+    def __init__(self):
+        super().__init__("whisper-server")
+
+    def start(self, cfg):
+        if self.is_running():
+            return
+        tc = cfg["transcription"]
+        model_path = config.DATA_DIR / "models" / "whisper" / tc["whisper_model"]
+        bin_dir = BIN_DIR / "whisper"
+        binary = bin_dir / "whisper-server"
+
+        num_threads = max(1, (os.cpu_count() or 4) * 3 // 4)
+        args = [
+            str(binary),
+            "--model", str(model_path),
+            "--host", tc["host"],
+            "--port", str(tc["port"]),
+            "--threads", str(num_threads),
+            "--convert",
+        ]
+
+        env = os.environ.copy()
+        env["LD_LIBRARY_PATH"] = str(bin_dir) + ":" + env.get("LD_LIBRARY_PATH", "")
+
+        log.info("Starting %s on port %d with model %s",
+                 self.name, tc["port"], tc["whisper_model"])
+        self.proc = subprocess.Popen(
+            args, env=env,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+
+        # Poll /health until 200
+        url = f"http://{tc['host']}:{tc['port']}/health"
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            if self.proc.poll() is not None:
+                raise RuntimeError("whisper-server exited early")
+            try:
+                r = httpx.get(url, timeout=2)
+                if r.status_code == 200:
+                    log.info("whisper-server ready")
+                    return
+            except httpx.ConnectError:
+                pass
+            time.sleep(0.5)
+        raise TimeoutError("whisper-server did not become ready within 60s")
+
+    def stop(self):
+        self._kill()
 
 
 class LlamaServer(Server):
@@ -157,16 +210,22 @@ class LlamaServer(Server):
 class ServerManager:
     def __init__(self):
         self.sherpa = SherpaServer()
+        self.whisper = WhisperServer()
         self.llama = LlamaServer()
 
     def start(self, cfg):
-        self.sherpa.start(cfg)
+        engine = cfg["transcription"].get("engine", "sherpa-onnx")
+        if engine == "whisper":
+            self.whisper.start(cfg)
+        else:
+            self.sherpa.start(cfg)
         if cfg["enhancement"]["enabled"]:
             self.llama.start(cfg)
 
     def stop(self):
         self.llama.stop()
         self.sherpa.stop()
+        self.whisper.stop()
 
     def restart(self, cfg):
         self.stop()

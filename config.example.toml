@@ -11,9 +11,14 @@ key = "KEY_RIGHTALT"               # evdev key name
 device = ""                        # auto-detect if empty
 
 [transcription]
+engine = "whisper"                 # "sherpa-onnx" or "whisper"
 host = "127.0.0.1"
 port = 6006
-model = "parakeet-tdt-0.6b-v3"
+model = "parakeet-tdt-0.6b-v3"    # sherpa-onnx model (used when engine = sherpa-onnx)
+sherpa_language = "en"             # language for sherpa-onnx (depends on model)
+whisper_model = "ggml-medium.bin"  # whisper model (used when engine = whisper)
+whisper_language = "auto"          # language code: "auto", "en", "cs", "de", etc.
+whisper_translate = false          # translate to English (Whisper only)
 
 [enhancement]
 enabled = true

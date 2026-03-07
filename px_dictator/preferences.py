@@ -18,6 +18,13 @@ ICON_PATH = str(config.PROJECT_DIR / "icons" / "pxd-ready.svg")
 log = logging.getLogger(__name__)
 
 
+def _format_size(size_bytes):
+    """Format byte count as human-readable string (MB or GB)."""
+    if size_bytes >= 1e9:
+        return f"{size_bytes / 1e9:.1f} GB"
+    return f"{size_bytes / 1e6:.0f} MB"
+
+
 def show_preferences(cfg, on_save=None, hotkey=None):
     """Show modal preferences dialog. Calls on_save(new_cfg) on OK."""
     dialog = PreferencesDialog(cfg, on_save, hotkey)
@@ -45,6 +52,7 @@ class PreferencesDialog(Gtk.Window):
         notebook.append_page(self._build_general_tab(), Gtk.Label(label="General"))
         notebook.append_page(self._build_audio_tab(), Gtk.Label(label="Audio"))
         notebook.append_page(self._build_hotkey_tab(), Gtk.Label(label="Hotkey"))
+        notebook.append_page(self._build_transcription_tab(), Gtk.Label(label="Transcription"))
         notebook.append_page(self._build_enhancement_tab(), Gtk.Label(label="Enhancement"))
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -121,6 +129,233 @@ class PreferencesDialog(Gtk.Window):
         grid.attach(learn_btn, 2, 0, 1, 1)
 
         return grid
+
+    # --- Language lists per engine ---
+
+    _COMMON_LANGUAGES = [
+        ("en", "English"),
+        ("cs", "Czech"),
+        ("sk", "Slovak"),
+        ("de", "German"),
+        ("fr", "French"),
+        ("es", "Spanish"),
+        ("it", "Italian"),
+        ("pt", "Portuguese"),
+        ("pl", "Polish"),
+        ("nl", "Dutch"),
+        ("ru", "Russian"),
+        ("uk", "Ukrainian"),
+        ("ja", "Japanese"),
+        ("zh", "Chinese"),
+        ("ko", "Korean"),
+        ("tr", "Turkish"),
+        ("ar", "Arabic"),
+        ("hi", "Hindi"),
+        ("sv", "Swedish"),
+        ("da", "Danish"),
+        ("fi", "Finnish"),
+        ("he", "Hebrew"),
+    ]
+
+    _WHISPER_LANGUAGES = [("auto", "Auto-detect")] + _COMMON_LANGUAGES
+    _SHERPA_LANGUAGES = [("auto", "Auto-detect")] + _COMMON_LANGUAGES
+
+    def _build_transcription_tab(self):
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        vbox.set_margin_top(12)
+        vbox.set_margin_start(12)
+        vbox.set_margin_end(12)
+
+        # Engine selector
+        hbox = Gtk.Box(spacing=12)
+        hbox.pack_start(Gtk.Label(label="Engine:", xalign=0), False, False, 0)
+        self._engine_combo = Gtk.ComboBoxText()
+        self._engine_combo.append_text("sherpa-onnx")
+        self._engine_combo.append_text("whisper")
+        engine = self.cfg["transcription"].get("engine", "sherpa-onnx")
+        self._engine_combo.set_active(0 if engine == "sherpa-onnx" else 1)
+        self._engine_combo.connect("changed", self._on_engine_changed)
+        hbox.pack_start(self._engine_combo, False, False, 0)
+        vbox.pack_start(hbox, False, False, 0)
+
+        # Language selector
+        lang_hbox = Gtk.Box(spacing=12)
+        lang_hbox.pack_start(Gtk.Label(label="Language:", xalign=0), False, False, 0)
+        self._stt_lang_combo = Gtk.ComboBoxText()
+        self._stt_lang_codes = []
+        lang_hbox.pack_start(self._stt_lang_combo, False, False, 0)
+        vbox.pack_start(lang_hbox, False, False, 0)
+
+        # Translate to English toggle (Whisper only)
+        self._translate_hbox = Gtk.Box(spacing=12)
+        self._translate_hbox.pack_start(
+            Gtk.Label(label="Translate to English:", xalign=0), False, False, 0)
+        self._translate_switch = Gtk.Switch()
+        self._translate_switch.set_active(
+            self.cfg["transcription"].get("whisper_translate", False))
+        self._translate_hbox.pack_start(self._translate_switch, False, False, 0)
+        vbox.pack_start(self._translate_hbox, False, False, 0)
+
+        # Model list
+        vbox.pack_start(Gtk.Label(label="Models:", xalign=0), False, False, 4)
+        self._stt_model_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        vbox.pack_start(self._stt_model_box, True, True, 0)
+
+        self._refresh_stt_languages()
+        self._refresh_stt_models()
+        self._update_translate_visibility()
+
+        return vbox
+
+    def _on_engine_changed(self, combo):
+        self.cfg["transcription"]["engine"] = combo.get_active_text()
+        self._refresh_stt_languages()
+        self._refresh_stt_models()
+        self._update_translate_visibility()
+
+    def _update_translate_visibility(self):
+        is_whisper = self._engine_combo.get_active_text() == "whisper"
+        self._translate_hbox.set_visible(is_whisper)
+        self._translate_hbox.set_no_show_all(not is_whisper)
+
+    def _refresh_stt_languages(self):
+        engine = self._engine_combo.get_active_text()
+        if engine == "whisper":
+            languages = self._WHISPER_LANGUAGES
+            current = self.cfg["transcription"].get("whisper_language", "auto")
+        else:
+            languages = self._SHERPA_LANGUAGES
+            current = self.cfg["transcription"].get("sherpa_language", "en")
+
+        self._stt_lang_combo.remove_all()
+        self._stt_lang_codes = [code for code, _ in languages]
+        for code, name in languages:
+            self._stt_lang_combo.append_text(f"{name} ({code})")
+
+        try:
+            self._stt_lang_combo.set_active(self._stt_lang_codes.index(current))
+        except ValueError:
+            self._stt_lang_combo.set_active(0)
+
+    def _refresh_stt_models(self):
+        for child in self._stt_model_box.get_children():
+            child.destroy()
+
+        engine = self._engine_combo.get_active_text()
+        if engine == "whisper":
+            entries = models.list_whisper()
+            active = self.cfg["transcription"].get("whisper_model", "")
+        else:
+            entries = models.list_sherpa()
+            active = self.cfg["transcription"].get("model", "")
+
+        for entry in entries:
+            row = Gtk.Box(spacing=8)
+            row.set_margin_start(4)
+
+            size_str = _format_size(entry["size_bytes"])
+            label = Gtk.Label(label=f"{entry['name']}  ({size_str})", xalign=0)
+            label.set_hexpand(True)
+            row.pack_start(label, True, True, 0)
+
+            # Model key: filename for whisper, dirname for sherpa
+            key = entry.get("filename") or entry.get("dirname", "")
+
+            if entry["installed"]:
+                if key == active:
+                    status = Gtk.Label(label="(Active)")
+                    row.pack_start(status, False, False, 0)
+                    unload_btn = Gtk.Button(label="Unload")
+                    unload_btn.connect("clicked", self._on_unload_stt_model)
+                    row.pack_start(unload_btn, False, False, 0)
+                else:
+                    use_btn = Gtk.Button(label="Use")
+                    use_btn.connect("clicked", self._on_use_stt_model, key)
+                    row.pack_start(use_btn, False, False, 0)
+
+                del_btn = Gtk.Button(label="Delete")
+                del_btn.connect("clicked", self._on_delete_stt_model, key)
+                row.pack_start(del_btn, False, False, 0)
+            else:
+                dl_btn = Gtk.Button(label="Download")
+                dl_btn.connect("clicked", self._on_download_stt_model, entry)
+                row.pack_start(dl_btn, False, False, 0)
+
+            self._stt_model_box.pack_start(row, False, False, 0)
+
+        self._stt_model_box.show_all()
+
+    def _on_unload_stt_model(self, btn):
+        engine = self._engine_combo.get_active_text()
+        if engine == "whisper":
+            self.cfg["transcription"]["whisper_model"] = ""
+        else:
+            self.cfg["transcription"]["model"] = ""
+        self._refresh_stt_models()
+
+    def _on_use_stt_model(self, btn, key):
+        engine = self._engine_combo.get_active_text()
+        if engine == "whisper":
+            self.cfg["transcription"]["whisper_model"] = key
+        else:
+            self.cfg["transcription"]["model"] = key
+        self._refresh_stt_models()
+
+    def _on_delete_stt_model(self, btn, key):
+        dialog = Gtk.MessageDialog(
+            transient_for=self, modal=True,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text=f"Delete {key}?",
+        )
+        response = dialog.run()
+        dialog.destroy()
+        if response != Gtk.ResponseType.YES:
+            return
+
+        engine = self._engine_combo.get_active_text()
+        if engine == "whisper":
+            models.delete_whisper(key)
+            if self.cfg["transcription"]["whisper_model"] == key:
+                installed = [e for e in models.list_whisper() if e["installed"]]
+                self.cfg["transcription"]["whisper_model"] = (
+                    installed[0]["filename"] if installed else ""
+                )
+        else:
+            models.delete_sherpa(key)
+            if self.cfg["transcription"]["model"] == key:
+                installed = [e for e in models.list_sherpa() if e["installed"]]
+                self.cfg["transcription"]["model"] = (
+                    installed[0]["dirname"] if installed else ""
+                )
+        self._refresh_stt_models()
+
+    def _on_download_stt_model(self, btn, entry):
+        if self._downloading:
+            return
+        self._downloading = True
+        btn.set_sensitive(False)
+        btn.set_label("0%")
+
+        engine = self._engine_combo.get_active_text()
+        download_fn = models.download_whisper if engine == "whisper" else models.download_sherpa
+
+        def progress_cb(downloaded, total):
+            pct = int(downloaded * 100 / total) if total else 0
+            GLib.idle_add(btn.set_label, f"{pct}%")
+
+        def do_download():
+            try:
+                download_fn(entry["id"], progress_cb=progress_cb)
+                GLib.idle_add(self._refresh_stt_models)
+            except Exception as e:
+                log.error("STT model download failed: %s", e)
+                GLib.idle_add(btn.set_label, "Failed")
+                GLib.idle_add(btn.set_sensitive, True)
+            finally:
+                self._downloading = False
+
+        threading.Thread(target=do_download, daemon=True).start()
 
     def _build_enhancement_tab(self):
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -277,6 +512,16 @@ class PreferencesDialog(Gtk.Window):
         else:
             # Extract name before " (#N)"
             self.cfg["audio"]["device"] = device_text.rsplit(" (#", 1)[0]
+
+        engine = self._engine_combo.get_active_text()
+        self.cfg["transcription"]["engine"] = engine
+        lang_idx = self._stt_lang_combo.get_active()
+        lang_code = self._stt_lang_codes[lang_idx] if lang_idx >= 0 else ""
+        if engine == "whisper":
+            self.cfg["transcription"]["whisper_language"] = lang_code or "auto"
+            self.cfg["transcription"]["whisper_translate"] = self._translate_switch.get_active()
+        else:
+            self.cfg["transcription"]["sherpa_language"] = lang_code or "en"
 
         self.cfg["enhancement"]["enabled"] = self._enh_switch.get_active()
         buf = self._prompt_view.get_buffer()

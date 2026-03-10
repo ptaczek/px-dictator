@@ -89,6 +89,8 @@ def transcribe_whisper(samples: np.ndarray, sample_rate: int,
 
     result = r.json()
     text = result.get("text", "").strip()
+    text = " ".join(text.split())           # collapse newlines & extra whitespace
+    text = text.replace("[BLANK_AUDIO]", "").strip()
 
     log.info("Transcribed (whisper): %s", text[:80])
     return text

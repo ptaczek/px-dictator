@@ -196,6 +196,9 @@ class HotkeyListener:
 
         combo_name = _combo_name(self._combo)
 
+        # Save LED state before grab (grab may reset LEDs)
+        pre_grab_leds = set(self._device.leds())
+
         # Create virtual keyboard to forward non-hotkey events
         try:
             self._uinput = evdev.UInput.from_device(
@@ -204,6 +207,12 @@ class HotkeyListener:
             self._device.grab()
             log.info("Keyboard grabbed, forwarding via uinput (consuming %s)",
                      ", ".join(_key_name(c) for c in self._consume_codes))
+
+            # Restore LEDs that were on before the grab
+            for led_code in _LED_SYNC.values():
+                if led_code in pre_grab_leds:
+                    self._device.write(ecodes.EV_LED, led_code, 1)
+            self._device.syn()
         except Exception as e:
             log.error("Failed to grab keyboard: %s", e)
             log.info("Falling back to non-grabbing mode (hotkey may leak to apps)")
@@ -211,9 +220,8 @@ class HotkeyListener:
                 self._uinput.close()
                 self._uinput = None
 
-        # Read initial LED state so we can sync lock-key LEDs back to the
-        # physical keyboard (the grab redirects LED changes to uinput only)
-        led_state = {led: (led in self._device.leds()) for led in _LED_SYNC.values()}
+        # Initialize LED tracking from pre-grab state
+        led_state = {led: (led in pre_grab_leds) for led in _LED_SYNC.values()}
 
         log.info("Listening for %s (codes %s)", combo_name, self._combo)
 
@@ -255,7 +263,10 @@ class HotkeyListener:
                         active = True
                         log.debug("%s activated", combo_name)
                         if self.on_press:
-                            self.on_press()
+                            try:
+                                self.on_press()
+                            except Exception:
+                                log.exception("Hotkey on_press callback failed")
 
                 elif event.value == 0:  # key up
                     held.discard(event.code)
@@ -263,7 +274,10 @@ class HotkeyListener:
                         active = False
                         log.debug("%s deactivated", combo_name)
                         if self.on_release:
-                            self.on_release()
+                            try:
+                                self.on_release()
+                            except Exception:
+                                log.exception("Hotkey on_release callback failed")
 
         except OSError:
             if not self._stop_event.is_set():

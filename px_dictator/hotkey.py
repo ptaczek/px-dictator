@@ -28,6 +28,14 @@ _MODIFIERS = {
 
 _VIRTUAL_NAMES = {"ydotoold virtual device", "px-dictator-kbd"}
 
+# Lock keys whose LEDs must be synced back to the physical keyboard after grab,
+# because the kernel only toggles the LED on the device that produced the event
+# (the uinput device), not the grabbed physical one.  CapsLock/NumLock are
+# handled by XKB across all devices; ScrollLock is not on modern desktops.
+_LED_SYNC = {
+    ecodes.KEY_SCROLLLOCK: ecodes.LED_SCROLLL,
+}
+
 
 def _key_name(code):
     """Get evdev key name for a code."""
@@ -203,6 +211,10 @@ class HotkeyListener:
                 self._uinput.close()
                 self._uinput = None
 
+        # Read initial LED state so we can sync lock-key LEDs back to the
+        # physical keyboard (the grab redirects LED changes to uinput only)
+        led_state = {led: (led in self._device.leds()) for led in _LED_SYNC.values()}
+
         log.info("Listening for %s (codes %s)", combo_name, self._combo)
 
         held = set()       # currently held keys that are part of our combo
@@ -223,6 +235,15 @@ class HotkeyListener:
                 # (skip during pause — keyboard is ungrabbed, events go to X11 directly)
                 if not is_consumed and self._uinput is not None and not self._paused:
                     self._uinput.write_event(event)
+
+                    # Sync lock-key LEDs back to the physical keyboard
+                    if event.type == ecodes.EV_KEY and event.value == 0:
+                        led_code = _LED_SYNC.get(event.code)
+                        if led_code is not None:
+                            led_state[led_code] = not led_state[led_code]
+                            self._device.write(ecodes.EV_LED, led_code,
+                                               int(led_state[led_code]))
+                            self._device.syn()
 
                 # Only track combo state for relevant key events
                 if event.type != ecodes.EV_KEY or event.code not in self._combo:

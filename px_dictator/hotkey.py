@@ -207,18 +207,22 @@ class HotkeyListener:
             self._device.grab()
             log.info("Keyboard grabbed, forwarding via uinput (consuming %s)",
                      ", ".join(_key_name(c) for c in self._consume_codes))
-
-            # Restore LEDs that were on before the grab
-            for led_code in _LED_SYNC.values():
-                if led_code in pre_grab_leds:
-                    self._device.write(ecodes.EV_LED, led_code, 1)
-            self._device.syn()
         except Exception as e:
             log.error("Failed to grab keyboard: %s", e)
             log.info("Falling back to non-grabbing mode (hotkey may leak to apps)")
             if self._uinput:
                 self._uinput.close()
                 self._uinput = None
+
+        # Restore LEDs that were on before the grab (best-effort, never fatal)
+        if self._uinput is not None:
+            try:
+                for led_code in _LED_SYNC.values():
+                    if led_code in pre_grab_leds:
+                        self._device.write(ecodes.EV_LED, led_code, 1)
+                self._device.syn()
+            except Exception:
+                log.warning("Failed to restore LED state after grab")
 
         # Initialize LED tracking from pre-grab state
         led_state = {led: (led in pre_grab_leds) for led in _LED_SYNC.values()}

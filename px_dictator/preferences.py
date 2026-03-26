@@ -103,13 +103,21 @@ class PreferencesDialog(Gtk.Window):
         self._device_combo.append_text("(Default)")
         current = self.cfg["audio"].get("device", "")
         active_idx = 0
-        for i, info in enumerate(sd.query_devices()):
+        # ALSA backend aliases that duplicate real PipeWire devices
+        _ALSA_ALIASES = {"pipewire", "pulse", "default", "sysdefault", "hw", "plughw",
+                         "dmix", "dsnoop", "surround21", "surround40", "surround41",
+                         "surround50", "surround51", "surround71"}
+        combo_idx = 0
+        for info in sd.query_devices():
             if info["max_input_channels"] > 0:
+                if info["name"].lower() in _ALSA_ALIASES:
+                    continue
+                combo_idx += 1
                 name = f"{info['name']} (#{info['index']})"
                 self._device_combo.append_text(name)
                 if current and (str(info["index"]) == current or
                                 current.lower() in info["name"].lower()):
-                    active_idx = i + 1
+                    active_idx = combo_idx
         self._device_combo.set_active(active_idx)
         grid.attach(self._device_combo, 1, 0, 1, 1)
 

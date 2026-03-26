@@ -34,6 +34,7 @@ class App:
         self._recording = False
         self._toggle_active = False
 
+        self._prefs_window = None
         self.indicator = Indicator(
             on_enable_toggle=self._on_enable_toggle,
             on_mode_change=self._on_mode_change,
@@ -171,8 +172,15 @@ class App:
             self._start_hotkey()
 
     def _on_preferences(self):
-        from .preferences import show_preferences
-        show_preferences(self.cfg, on_save=self._on_prefs_saved, hotkey=self.hotkey)
+        if self._prefs_window is not None:
+            self._prefs_window.present()
+            return
+        from .preferences import PreferencesDialog
+        self._prefs_window = PreferencesDialog(
+            self.cfg, on_save=self._on_prefs_saved, hotkey=self.hotkey)
+        self._prefs_window.connect("destroy", lambda _: setattr(self, '_prefs_window', None))
+        self._prefs_window.show_all()
+        self._prefs_window.present()
 
     def _on_prefs_saved(self, new_cfg):
         old_cfg = self.cfg

@@ -220,7 +220,7 @@ class HotkeyListener:
                 for led_code in _LED_SYNC.values():
                     if led_code in pre_grab_leds:
                         self._device.write(ecodes.EV_LED, led_code, 1)
-                self._device.syn()
+                self._device.write(ecodes.EV_SYN, ecodes.SYN_REPORT, 0)
             except Exception:
                 log.warning("Failed to restore LED state after grab")
 
@@ -255,7 +255,7 @@ class HotkeyListener:
                             led_state[led_code] = not led_state[led_code]
                             self._device.write(ecodes.EV_LED, led_code,
                                                int(led_state[led_code]))
-                            self._device.syn()
+                            self._device.write(ecodes.EV_SYN, ecodes.SYN_REPORT, 0)
 
                 # Only track combo state for relevant key events
                 if event.type != ecodes.EV_KEY or event.code not in self._combo:

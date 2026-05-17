@@ -7,7 +7,8 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk, Gdk, GLib, Pango
 
-import sounddevice as sd
+import json
+import subprocess
 
 from gi.repository import GdkPixbuf
 
@@ -103,25 +104,37 @@ class PreferencesDialog(Gtk.Window):
         self._device_combo.append_text("(Default)")
         current = self.cfg["audio"].get("device", "")
         active_idx = 0
-        # ALSA backend aliases that duplicate real PipeWire devices
-        _ALSA_ALIASES = {"pipewire", "pulse", "default", "sysdefault", "hw", "plughw",
-                         "dmix", "dsnoop", "surround21", "surround40", "surround41",
-                         "surround50", "surround51", "surround71"}
-        combo_idx = 0
-        for info in sd.query_devices():
-            if info["max_input_channels"] > 0:
-                if info["name"].lower() in _ALSA_ALIASES:
-                    continue
-                combo_idx += 1
-                name = f"{info['name']} (#{info['index']})"
-                self._device_combo.append_text(name)
-                if current and (str(info["index"]) == current or
-                                current.lower() in info["name"].lower()):
-                    active_idx = combo_idx
+        self._pw_sources = []
+        for source in self._list_pw_sources():
+            self._pw_sources.append(source["name"])
+            self._device_combo.append_text(source["description"])
+            if current and source["name"] == current:
+                active_idx = len(self._pw_sources)
         self._device_combo.set_active(active_idx)
         grid.attach(self._device_combo, 1, 0, 1, 1)
 
         return grid
+
+    @staticmethod
+    def _list_pw_sources():
+        """List PipeWire input sources (excluding monitors)."""
+        try:
+            result = subprocess.run(
+                ["pactl", "-f", "json", "list", "sources"],
+                capture_output=True, text=True, timeout=5,
+                env={**__import__("os").environ, "LC_ALL": "C"},
+            )
+            if result.returncode != 0:
+                return []
+            sources = json.loads(result.stdout)
+            return [
+                {"name": s["name"], "description": s.get("description", s["name"])}
+                for s in sources
+                if "monitor" not in s["name"]
+            ]
+        except Exception as e:
+            log.warning("Failed to list PipeWire sources: %s", e)
+            return []
 
     def _build_hotkey_tab(self):
         grid = Gtk.Grid(column_spacing=12, row_spacing=8)
@@ -514,12 +527,11 @@ class PreferencesDialog(Gtk.Window):
         self.cfg["general"]["enabled"] = self._enable_switch.get_active()
         self.cfg["general"]["activation_mode"] = self._mode_combo.get_active_text()
 
-        device_text = self._device_combo.get_active_text()
-        if device_text == "(Default)":
+        device_idx = self._device_combo.get_active()
+        if device_idx == 0:
             self.cfg["audio"]["device"] = ""
         else:
-            # Extract name before " (#N)"
-            self.cfg["audio"]["device"] = device_text.rsplit(" (#", 1)[0]
+            self.cfg["audio"]["device"] = self._pw_sources[device_idx - 1]
 
         engine = self._engine_combo.get_active_text()
         self.cfg["transcription"]["engine"] = engine

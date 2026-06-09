@@ -99,6 +99,37 @@ def _find_keyboard(device_hint=""):
     )
 
 
+def list_keyboards():
+    """List candidate keyboard devices as (name, path), deduped by name.
+
+    Includes any device exposing letter keys, minus our own helper virtual
+    devices.  Used by the preferences UI to populate a device picker so the
+    user can point the hotkey at the right device (e.g. 'keyd virtual
+    keyboard' when a remapper grabs the physical one) without editing TOML.
+    """
+    seen = set()
+    result = []
+    for path in evdev.list_devices():
+        try:
+            dev = evdev.InputDevice(path)
+        except OSError:
+            continue
+        try:
+            caps = dev.capabilities(verbose=False)
+            if ecodes.EV_KEY not in caps:
+                continue
+            key_caps = caps[ecodes.EV_KEY]
+            if not any(ecodes.KEY_A <= k <= ecodes.KEY_Z for k in key_caps):
+                continue
+            if dev.name in _VIRTUAL_NAMES or dev.name in seen:
+                continue
+            seen.add(dev.name)
+            result.append((dev.name, dev.path))
+        finally:
+            dev.close()
+    return result
+
+
 class HotkeyListener:
     def __init__(self, cfg, on_press=None, on_release=None):
         hc = cfg["hotkey"]

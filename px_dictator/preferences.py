@@ -149,7 +149,42 @@ class PreferencesDialog(Gtk.Window):
         learn_btn.connect("clicked", self._on_learn_hotkey)
         grid.attach(learn_btn, 2, 0, 1, 1)
 
+        # Device picker — which keyboard to listen on. Matched by name
+        # substring (see hotkey._find_keyboard), so the stored value is the
+        # full device name. "(Auto-detect)" maps to an empty hint.
+        grid.attach(Gtk.Label(label="Device:", xalign=0), 0, 1, 1, 1)
+        self._hotkey_device_combo = Gtk.ComboBoxText()
+        self._hotkey_device_combo.append_text("(Auto-detect)")
+        self._hotkey_device_names = []
+        current_dev = self.cfg["hotkey"].get("device", "")
+        active_idx = 0
+        try:
+            keyboards = hotkey.list_keyboards()
+        except Exception as e:
+            log.warning("Failed to list keyboards: %s", e)
+            keyboards = []
+        for name, path in keyboards:
+            self._hotkey_device_names.append(name)
+            self._hotkey_device_combo.append_text(f"{name}  ({path})")
+            if current_dev and current_dev.lower() in name.lower():
+                active_idx = len(self._hotkey_device_names)
+        # A saved hint that matches no connected device must not vanish from
+        # the UI — surface it so the user can see and keep it.
+        if current_dev and active_idx == 0:
+            self._hotkey_device_names.append(current_dev)
+            self._hotkey_device_combo.append_text(f"{current_dev}  (not connected)")
+            active_idx = len(self._hotkey_device_names)
+        self._hotkey_device_combo.set_active(active_idx)
+        grid.attach(self._hotkey_device_combo, 1, 1, 2, 1)
+
         return grid
+
+    def _selected_hotkey_device(self):
+        """Device name for the current combo selection ('' for auto-detect)."""
+        idx = self._hotkey_device_combo.get_active()
+        if idx <= 0:
+            return ""
+        return self._hotkey_device_names[idx - 1]
 
     # --- Language lists per engine ---
 
@@ -506,7 +541,7 @@ class PreferencesDialog(Gtk.Window):
                 self._hotkey.pause_grab()
             try:
                 key = hotkey.learn_key(
-                    self.cfg["hotkey"].get("device", ""),
+                    self._selected_hotkey_device(),
                     on_update=lambda name: GLib.idle_add(
                         self._hotkey_label.set_text, name),
                 )
@@ -526,6 +561,8 @@ class PreferencesDialog(Gtk.Window):
         # Gather values
         self.cfg["general"]["enabled"] = self._enable_switch.get_active()
         self.cfg["general"]["activation_mode"] = self._mode_combo.get_active_text()
+
+        self.cfg["hotkey"]["device"] = self._selected_hotkey_device()
 
         device_idx = self._device_combo.get_active()
         if device_idx == 0:
